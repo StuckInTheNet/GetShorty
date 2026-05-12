@@ -337,6 +337,44 @@ export default function Home() {
             </div>
           </div>
         )}
+        {/* Chrome Extension */}
+        <div className="border-t border-border pt-8 space-y-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
+            <span className="text-sm font-medium text-foreground">chrome extension</span>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            summarize any page without leaving the tab.
+          </p>
+          <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside leading-relaxed">
+            <li>
+              grab the{' '}
+              <a
+                href="https://github.com/StuckInTheNet/GetShorty/tree/main/extension"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                extension code
+              </a>
+              {' '}from GitHub
+            </li>
+            <li>open <span className="font-mono text-foreground/70">chrome://extensions</span> and enable Developer mode</li>
+            <li>click Load unpacked and select the extension folder</li>
+          </ol>
+        </div>
+
+        {/* Footer */}
+        <div className="pt-4 text-center">
+          <a
+            href="https://github.com/StuckInTheNet/GetShorty"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          >
+            github
+          </a>
+        </div>
       </main>
     </div>
   )

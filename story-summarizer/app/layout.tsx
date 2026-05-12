@@ -1,14 +1,12 @@
 import type { Metadata } from "next"
-import { Inter } from 'next/font/google'
+import { JetBrains_Mono } from 'next/font/google'
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
 
-const inter = Inter({ subsets: ["latin"] })
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  title: "Shorty - Smart Article Summarizer",
-  description: "AI-powered article summarization with precision length control",
-    generator: 'v0.dev'
+  title: "shorty",
+  description: "paste a url. get the gist.",
 }
 
 export default function RootLayout({
@@ -17,16 +15,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange={false}
-        >
-          {children}
-        </ThemeProvider>
+    <html lang="en" className="dark">
+      <body className={`${mono.variable} font-mono`}>
+        {children}
       </body>
     </html>
   )

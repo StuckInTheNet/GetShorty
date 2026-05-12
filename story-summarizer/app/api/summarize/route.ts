@@ -1,243 +1,152 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateText } from 'ai'
-import { openai } from '@ai-sdk/openai'
+import { anthropic } from '@ai-sdk/anthropic'
 import { summaryCache } from '@/lib/cache'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
+export async function OPTIONS() {
+  return NextResponse.json(null, { headers: corsHeaders })
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return NextResponse.json(body, { status, headers: corsHeaders })
+}
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
-  
+
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: 'OpenAI API key is not configured. Please add OPENAI_API_KEY to your environment variables.' },
-        { status: 500 }
-      )
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return jsonResponse({ error: 'Anthropic API key is not configured.' }, 500)
     }
 
-    const { url } = await request.json()
+    const body = await request.json()
+    const url = body.url
+    const clientContent = body.content  // optional: extension sends page text directly
+
     if (!url) {
-      return NextResponse.json({ error: 'URL is required' }, { status: 400 })
+      return jsonResponse({ error: 'URL is required' }, 400)
     }
 
-    console.log(`🚀 Processing: ${url}`)
+    console.log(`Processing: ${url}`)
 
-    // Check cache first
     const cached = summaryCache.get(url)
     if (cached) {
-      console.log(`⚡ Cache hit: ${Date.now() - startTime}ms`)
-      return NextResponse.json({
-        summaries: cached.summaries,
-        title: cached.title
-      })
+      console.log(`Cache hit: ${Date.now() - startTime}ms`)
+      return jsonResponse({ summaries: cached.summaries, title: cached.title })
     }
 
-    // Fetch content
-    const { content, title } = await fetchContentTurbo(url)
-    console.log(`📄 Content ready: ${Date.now() - startTime}ms`)
+    let content: string
+    let title: string
+
+    if (clientContent && clientContent.length > 50) {
+      // Extension sent page text — skip fetch entirely
+      content = clientContent.slice(0, 1500)
+      title = body.title || 'Article Summary'
+    } else {
+      const fetched = await fetchContent(url)
+      content = fetched.content
+      title = fetched.title
+    }
 
     if (!content || content.length < 50) {
-      return NextResponse.json({ 
-        error: 'Could not extract enough content from this article.' 
-      }, { status: 400 })
+      return jsonResponse({ error: 'Could not extract enough content from this article.' }, 400)
     }
 
-    // BALANCED APPROACH: Generate 2 AI summaries for quality + speed
-    console.log(`🤖 AI processing: ${Date.now() - startTime}ms`)
-    
-    const [shortResult, longResult] = await Promise.all([
-      // Short summary (1-3 sentences)
-      generateText({
-        model: openai('gpt-3.5-turbo'),
-        temperature: 0,
-        maxTokens: 80,
-        prompt: `Write a concise 2-sentence summary of this article:\n\n${content.slice(0, 600)}`
-      }),
-      // Long summary (5-7 sentences) 
-      generateText({
-        model: openai('gpt-3.5-turbo'),
-        temperature: 0,
-        maxTokens: 200,
-        prompt: `Write a detailed 6-sentence summary covering all key points of this article:\n\n${content.slice(0, 1000)}`
-      })
-    ])
+    const result = await generateText({
+      model: anthropic('claude-haiku-4-5-20251001'),
+      temperature: 0,
+      maxTokens: 150,
+      prompt: `Summarize in 4 sentences. Do NOT use markdown, headers, hashtags, or labels. Just plain sentences.\n\n${content.slice(0, 600)}`
+    })
 
-    console.log(`🤖 AI complete: ${Date.now() - startTime}ms`)
+    const cleaned = result.text
+      .replace(/^#{1,6}\s+.*$/gm, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/^\s*[-*]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .trim()
 
-    // SMART COMBINATION: Use both AI summaries + content intelligently
-    const allSummaries = createQualitySummaries(shortResult.text, longResult.text, content)
+    const sentences = cleaned
+      .split(/(?<=\.)\s+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 10)
 
-    summaryCache.set(url, allSummaries, title)
-    
-    console.log(`✅ Total: ${Date.now() - startTime}ms`)
+    const summaries: Record<number, string> = {}
+    for (let i = 1; i <= 8; i++) {
+      const s = sentences.slice(0, Math.min(i, sentences.length))
+      summaries[i] = s.length > 0 ? s.join(' ') : 'Summary unavailable.'
+    }
 
-    return NextResponse.json({ summaries: allSummaries, title })
+    summaryCache.set(url, summaries, title)
+    console.log(`Done: ${Date.now() - startTime}ms`)
+
+    return jsonResponse({ summaries, title })
 
   } catch (error) {
-    console.error(`❌ Error: ${Date.now() - startTime}ms:`, error)
-    return NextResponse.json(
-      { error: 'Summarization failed. Please try again.' },
-      { status: 500 }
-    )
+    const raw = error instanceof Error ? error.message : ''
+    console.error(`Error: ${Date.now() - startTime}ms:`, raw)
+
+    let msg = 'Something went wrong. Try again in a moment.'
+    if (raw.includes('HTTP 403') || raw.includes('HTTP 401')) {
+      msg = 'This site blocked us. Paste the article text below instead.'
+    } else if (raw.includes('HTTP 404')) {
+      msg = 'Page not found. Double-check the URL.'
+    } else if (raw.includes('HTTP 5')) {
+      msg = 'That site is having issues right now. Try again later.'
+    } else if (raw.includes('abort') || raw.includes('timeout')) {
+      msg = 'The site took too long to respond. Try again or paste the text.'
+    } else if (raw.includes('fetch')) {
+      msg = "Couldn't reach that site. Paste the article text below instead."
+    } else if (raw.includes('API key')) {
+      msg = 'API key missing. Check your .env.local file.'
+    }
+
+    return jsonResponse({ error: msg }, 500)
   }
 }
 
-async function fetchContentTurbo(url: string) {
+async function fetchContent(url: string) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 2500)
-  
+  const timeoutId = setTimeout(() => controller.abort(), 10000)
+
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { 
-        'User-Agent': 'Mozilla/5.0 (compatible; ShortyBot/1.0)',
-        'Accept': 'text/html',
-        'Connection': 'keep-alive',
-        'Accept-Encoding': 'gzip'
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
       }
     })
     clearTimeout(timeoutId)
-    
+
     if (!response.ok) {
-      throw new Error(`Failed to fetch: HTTP ${response.status}`)
+      throw new Error(`HTTP ${response.status}`)
     }
-    
+
     const html = await response.text()
-    
-    const [content, title] = await Promise.all([
-      Promise.resolve(extractContentTurbo(html)),
-      Promise.resolve(extractTitleTurbo(html))
-    ])
-    
+    const content = html
+      .replace(/<(?:script|style|nav|header|footer)[^>]*>[\s\S]*?<\/(?:script|style|nav|header|footer)>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&(?:#\d+|#x[\da-f]+|[a-z]+);/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 1500)
+
+    const titleMatch = html.match(/<title[^>]*>([^<]{1,100})<\/title>/i)
+    const title = titleMatch?.[1]?.trim() || 'Article Summary'
+
     return { content, title }
-    
+
   } catch (error) {
     clearTimeout(timeoutId)
-    throw new Error('Failed to fetch the article. Please check the URL.')
-  }
-}
-
-function extractContentTurbo(html: string): string {
-  const content = html
-    .replace(/<(?:script|style|nav|header|footer)[^>]*>[\s\S]*?<\/(?:script|style|nav|header|footer)>/gi, '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(?:#\d+|#x[\da-f]+|[a-z]+);/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  return content.slice(0, 1500)
-}
-
-function extractTitleTurbo(html: string): string {
-  const match = html.match(/<title[^>]*>([^<]{1,100})<\/title>/i)
-  return match?.[1]?.trim() || 'Article Summary'
-}
-
-function createQualitySummaries(shortSummary: string, longSummary: string, content: string): Record<number, string> {
-  const summaries: Record<number, string> = {}
-  
-  // Parse both AI summaries into sentences
-  const shortSentences = shortSummary
-    .split(/[.!?]+/)
-    .filter(s => s.trim().length > 10)
-    .map(s => s.trim())
-  
-  const longSentences = longSummary
-    .split(/[.!?]+/)
-    .filter(s => s.trim().length > 10)
-    .map(s => s.trim())
-  
-  // Extract high-quality content sentences
-  const contentSentences = extractBestContentSentences(content)
-  
-  // Create a prioritized sentence pool
-  const sentencePool = createPrioritizedPool(shortSentences, longSentences, contentSentences)
-  
-  // Generate each length (1-8 only) with bullet points
-  for (let i = 1; i <= 8; i++) {
-    summaries[i] = createBulletPointSummary(i, sentencePool, shortSentences, longSentences)
-  }
-  
-  return summaries
-}
-
-function extractBestContentSentences(content: string): string[] {
-  const paragraphs = content.split(/\n\s*\n|\.\s+(?=[A-Z])/)
-  const bestSentences: string[] = []
-  
-  paragraphs.forEach(paragraph => {
-    const sentences = paragraph
-      .split(/[.!?]+/)
-      .filter(s => s.trim().length > 25)
-      .map(s => s.trim())
-    
-    if (sentences.length > 0) {
-      bestSentences.push(sentences[0])
-    }
-  })
-  
-  return bestSentences.slice(0, 12)
-}
-
-function createPrioritizedPool(shortSentences: string[], longSentences: string[], contentSentences: string[]): string[] {
-  const pool: string[] = []
-  const seen = new Set<string>()
-  
-  // Priority 1: Short AI summary
-  shortSentences.forEach(sentence => {
-    const key = sentence.toLowerCase().slice(0, 40)
-    if (!seen.has(key)) {
-      seen.add(key)
-      pool.push(sentence)
-    }
-  })
-  
-  // Priority 2: Long AI summary
-  longSentences.forEach(sentence => {
-    const key = sentence.toLowerCase().slice(0, 40)
-    if (!seen.has(key)) {
-      seen.add(key)
-      pool.push(sentence)
-    }
-  })
-  
-  // Priority 3: Best content sentences
-  contentSentences.forEach(sentence => {
-    const key = sentence.toLowerCase().slice(0, 40)
-    if (!seen.has(key) && sentence.length > 25) {
-      seen.add(key)
-      pool.push(sentence)
-    }
-  })
-  
-  return pool
-}
-
-function createBulletPointSummary(targetLength: number, sentencePool: string[], shortSentences: string[], longSentences: string[]): string {
-  let sentences: string[] = []
-  
-  if (targetLength <= 3) {
-    // Use short AI summary for 1-3 sentences
-    sentences = shortSentences.slice(0, targetLength)
-    if (sentences.length < targetLength && sentencePool.length > sentences.length) {
-      sentences.push(...sentencePool.slice(sentences.length, targetLength))
-    }
-  } else if (targetLength <= 6) {
-    // Use long AI summary for 4-6 sentences
-    sentences = longSentences.slice(0, targetLength)
-    if (sentences.length < targetLength && sentencePool.length > sentences.length) {
-      sentences.push(...sentencePool.slice(sentences.length, targetLength))
-    }
-  } else {
-    // For 7-8, use all available quality sentences
-    sentences = sentencePool.slice(0, Math.min(targetLength, sentencePool.length))
-  }
-  
-  // Format as bullet points
-  if (sentences.length === 1) {
-    // Single sentence - no bullet needed
-    return sentences[0] + '.'
-  } else {
-    // Multiple sentences - use bullet points
-    return sentences.map(sentence => `• ${sentence}`).join('\n')
+    console.error('Fetch error:', error)
+    throw new Error(`Failed to fetch the article: ${error instanceof Error ? error.message : 'unknown error'}`)
   }
 }

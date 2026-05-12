@@ -1,302 +1,188 @@
 # GetShorty
 
-A modern **Next.js 15** application using **React 19**, **Tailwind CSS**, and **Radix UI** to deliver AI-assisted summarization of web content.  
-Built with the **Vercel AI SDK** (`ai`) and `@ai-sdk/openai` for seamless LLM integration, and optimized for both speed and quality.
+**Get the gist of any article.** Paste a URL, pick a length, get a clean summary.
 
-## Features
+Live at **[getshorty.xyz](https://getshorty.xyz)**
 
-- **Article Summarization API** (`/api/summarize`) that:
-  - Fetches and cleans remote article content.
-  - Generates short and long AI summaries.
-  - Produces bullet-point summaries from 1–8 sentences.
-  - Caches results to improve latency and reduce API costs.
-- **Radix UI** primitives and **shadcn-style** components.
-- **Dark mode** with `next-themes`.
-- **Responsive, accessible design** with Tailwind CSS.
-- Fully **TypeScript**-typed, with ESLint and modern DX tooling.
+---
 
+## What It Does
 
-## Tech Stack
+GetShorty summarizes web articles using AI. It comes in two forms:
 
-- **Framework:** Next.js 15.2.4
-- **Language:** TypeScript 5+
-- **UI:** Tailwind CSS, Radix UI, lucide-react, vaul
-- **AI SDK:** `ai` + `@ai-sdk/openai`
-- **Forms & Validation:** react-hook-form + zod
-- **Utilities:** class-variance-authority, tailwind-merge, date-fns
-- **Other UI Tools:** cmdk, recharts, react-day-picker, embla-carousel-react
+- **Web app** — paste any URL, get a summary. Handles fetch errors gracefully with a paste-the-text fallback.
+- **Chrome extension** — summarize the page you're on without leaving the tab. Brings your own API key.
+
+Both share the same four summary lengths:
+
+| Mode | Sentences | Use case |
+|------|-----------|----------|
+| **one-liner** | 1 | Headlines, quick scan |
+| **brief** | 3 | Default. The gist. |
+| **detailed** | 5 | Meeting prep, deeper context |
+| **thorough** | 8 | Full picture, all key points |
+
+---
 
 ## Project Structure
 
 ```
-.
-├── app/                # App Router pages, layouts, API routes
-│   └── api/
-│       └── summarize/   # Summarization API endpoint
-├── components/         # Reusable UI components
-├── hooks/              # Custom React hooks
-├── lib/                # Utility functions, cache, configs
-├── public/             # Static assets
-├── styles/             # Global styles, Tailwind layers
-├── components.json     # shadcn-style component registry
-├── next.config.mjs     # Next.js config
-├── package.json        # Project metadata & scripts
-├── pnpm-lock.yaml      # Lockfile
-├── postcss.config.mjs  # PostCSS config
-├── tailwind.config.ts  # Tailwind theme/config
-└── tsconfig.json       # TypeScript config
+GetShorty/
+  story-summarizer/       # Next.js web app (deployed to Vercel)
+    app/
+      api/summarize/       # POST /api/summarize endpoint
+      page.tsx             # Main UI
+      layout.tsx           # Root layout (JetBrains Mono, dark mode)
+    components/            # Radix UI + shadcn-style components
+    lib/
+      cache.ts             # In-memory summary cache
+      history.ts           # Client-side summary history
+      utils.ts             # Tailwind merge utilities
+    hooks/                 # Custom React hooks
+
+  extension/               # Chrome extension (Manifest V3)
+    manifest.json
+    popup.html             # Extension popup UI
+    popup.js               # All extension logic (vanilla JS)
+    icon*.png              # Extension icons
 ```
-
-## Getting Started
-
-### Prerequisites
-- **Node.js** ≥ 18.18 (20 LTS recommended)
-- **pnpm** (preferred) or npm/yarn
-- **OpenAI API key**
-
-### Installation
-
-```bash
-# Clone
-git clone https://github.com/StuckInTheNet/GetShorty.git
-cd GetShorty
-
-# Install dependencies
-pnpm install
-# or npm install / yarn install
-
-# Create env file
-cp .env.example .env.local
-# Add your API keys inside
-```
-
-##  Environment Variables
-
-Create `.env.local` in the root:
-
-```env
-# Required for AI integration
-OPENAI_API_KEY=sk-...
-
-# Optional settings
-AI_MODEL=gpt-3.5-turbo
-AI_TEMPERATURE=0.0
-```
-
-## Development
-
-```bash
-pnpm dev
-```
-Runs the development server at [http://localhost:3000](http://localhost:3000).
-
-## Build & Start
-
-```bash
-pnpm build
-pnpm start
-```
-Builds the production bundle and starts the app.
 
 ---
 
-## Scripts
+## Web App
 
-| Command       | Description                                |
-|---------------|--------------------------------------------|
-| `pnpm dev`    | Start dev server with hot reload            |
-| `pnpm build`  | Create optimized production build           |
-| `pnpm start`  | Run production server                       |
-| `pnpm lint`   | Lint the codebase using Next.js ESLint      |
+### Tech Stack
 
+| Layer | Technology |
+|-------|-----------|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript 5 |
+| UI | Tailwind CSS 3, Radix UI, JetBrains Mono |
+| AI | Vercel AI SDK + Anthropic (Claude Haiku 4.5) |
+| Hosting | Vercel |
 
-## UI & Styling
-
-- **Tailwind CSS** for styling.
-- **Radix UI** for accessible component primitives.
-- **shadcn-style** utilities (`class-variance-authority`, `tailwind-merge`) for composable components.
-- **Dark mode** via `next-themes`.
-
-##  API: `POST /api/summarize`
-
-Summarizes an arbitrary web article by:
-1. Fetching and heuristically extracting title/body.
-2. Generating two LLM summaries (short + long).
-3. Combining them with top content sentences into 1–8 length bullet variants.
-4. Caching results by URL.
-
-**Runtime:** Next.js App Router (Node runtime)  
-**Model:** `openai('gpt-3.5-turbo')` via Vercel AI SDK’s `generateText`
-
-### Request
-
-**Endpoint**
-```
-POST /api/summarize
-Content-Type: application/json
-```
-
-**Body**
-```json
-{
-  "url": "https://example.com/some-article"
-}
-```
-
-### Success Response
-
-```json
-{
-  "summaries": {
-    "1": "One-sentence summary.",
-    "2": "• Bullet 1\n• Bullet 2",
-    "3": "• ... up to 3 items",
-    "4": "• ... up to 4 items",
-    "5": "• ... up to 5 items",
-    "6": "• ... up to 6 items",
-    "7": "• ... up to 7 items",
-    "8": "• ... up to 8 items"
-  },
-  "title": "Extracted or fallback title"
-}
-```
-
-- `summaries[i]` exists for `i ∈ [1,8]`.
-- For `i=1`, value is a single sentence (no bullet prefix).
-- For `i≥2`, items are newline-delimited bullets.
-
-### Error Responses
-
-- `400` — missing or insufficient input
-  ```json
-  { "error": "URL is required" }
-  ```
-  ```json
-  { "error": "Could not extract enough content from this article." }
-  ```
-- `500` — server or configuration error
-  ```json
-  { "error": "OpenAI API key is not configured. Please add OPENAI_API_KEY to your environment variables." }
-  ```
-  ```json
-  { "error": "Summarization failed. Please try again." }
-  ```
-
-### Example (cURL)
+### Getting Started
 
 ```bash
-curl -s -X POST http://localhost:3000/api/summarize   -H "Content-Type: application/json"   -d '{"url":"https://example.com/news/post"}' | jq .
+cd story-summarizer
+pnpm install
+cp .env.example .env.local   # Add your API key
+pnpm dev                     # http://localhost:3000
 ```
 
-### Caching
+### Environment Variables
 
-- Uses `summaryCache` from `@/lib/cache` (in-memory).
-- **Lookup flow:** `get(url)` → return cached `{ summaries, title }` immediately if present.
-- **Store flow:** `set(url, summaries, title)` after successful generation.
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-> For persistence across restarts or multiple instances, back `summaryCache` with Redis or KV and add a TTL (e.g., 24h).
+### Scripts
 
-### Content Fetch & Extraction
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Dev server with hot reload |
+| `pnpm build` | Production build |
+| `pnpm start` | Run production server |
+| `pnpm lint` | ESLint |
 
-- Fetch timeout: **2.5s** via `AbortController`.
-- Strips `<script|style|nav|header|footer>` blocks, tags, entities.
-- **Content cap:** first **1,500 chars** of cleaned text.
-- Title via `<title>` tag (max ~100 chars), fallback `"Article Summary"`.
-- If cleaned `content` is `< 50` chars → returns `400`.
+### API: `POST /api/summarize`
 
-### LLM Strategy
+Summarizes a web article by fetching, extracting, and generating an AI summary.
 
-- Executes two parallel generations:
-  - **Short**: 1–3 sentences (`maxTokens: 80`, temp `0`) from first 600 chars.
-  - **Long**: 5–7 sentences (`maxTokens: 200`, temp `0`) from first 1,000 chars.
-- Combines and deduplicates sentences (short → long → content).
-- Outputs all variants 1–8 sentences as bullets (except single-sentence variant).
+**Request**
 
-### Client Usage Example (React)
-
-```tsx
-"use client";
-import { useState } from "react";
-
-export default function SummarizeDemo() {
-  const [url, setUrl] = useState("");
-  const [data, setData] = useState<any>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function submit() {
-    setLoading(true);
-    setErr(null);
-    setData(null);
-    const res = await fetch("/api/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    const json = await res.json();
-    setLoading(false);
-    if (!res.ok) return setErr(json.error || "Request failed");
-    setData(json);
-  }
-
-  return (
-    <div className="space-y-4">
-      <input
-        className="w-full border p-2 rounded"
-        placeholder="https://example.com/article"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-      />
-      <button className="px-3 py-2 border rounded" onClick={submit} disabled={loading}>
-        {loading ? "Summarizing..." : "Summarize"}
-      </button>
-
-      {err && <p className="text-red-600">{err}</p>}
-      {data && (
-        <div className="space-y-3">
-          <h3 className="font-semibold">{data.title}</h3>
-          {Array.from({ length: 8 }, (_, i) => i + 1).map((k) => (
-            <div key={k}>
-              <div className="text-sm font-medium">Summary ({k})</div>
-              <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded">
-                {data.summaries[k]}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+```json
+{
+  "url": "https://example.com/article",
+  "content": "optional — pre-extracted article text",
+  "title": "optional — article title"
 }
 ```
+
+If `content` is provided (e.g., from the Chrome extension), the server skips fetching the URL.
+
+**Response**
+
+```json
+{
+  "title": "Article Title",
+  "summaries": {
+    "1": "One sentence.",
+    "2": "Two sentences joined.",
+    "3": "Three sentences joined.",
+    "...": "...",
+    "8": "All eight sentences joined."
+  }
+}
+```
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| 400 | Missing URL or insufficient content |
+| 500 | API key missing, fetch failure, or AI error |
+
+Error messages are user-friendly and suggest paste-the-text fallback when the target site blocks requests.
+
+**Caching** — In-memory by URL. Subsequent requests for the same URL return cached results instantly.
+
+---
+
+## Chrome Extension
+
+A Manifest V3 Chrome extension that summarizes the current tab directly in the browser.
+
+### Features
+
+- **BYOK** — Bring your own API key (Anthropic or OpenAI)
+- **Direct API calls** — Calls Anthropic/OpenAI APIs directly from the extension, no middleman server needed
+- **Page extraction** — Injects a content script to pull clean article text from the active tab
+- **Customizable** — Theme (dark/light), accent color (8 options), font (mono/sans/serif), size (compact/default/large)
+- **Persistent settings** — All preferences saved via `chrome.storage.local`
+
+### Install (Development)
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the `extension/` directory
+
+### How It Works
+
+1. Opens a popup showing the current tab URL
+2. Pick a length mode (one-liner / brief / detailed / thorough)
+3. Click **summarize this page**
+4. Extension extracts page content via `chrome.scripting.executeScript`
+5. Sends content directly to your chosen AI provider's API
+6. Displays numbered summary points with copy button
+
+### Supported Providers
+
+| Provider | Model | Key format |
+|----------|-------|-----------|
+| Anthropic | claude-haiku-4-5 | `sk-ant-...` |
+| OpenAI | gpt-4o-mini | `sk-...` |
+
+---
 
 ## Deployment
 
-### Vercel (recommended)
-1. Push to GitHub.
-2. Import in [Vercel Dashboard](https://vercel.com).
-3. Add environment variables.
-4. Deploy.
+The web app is deployed to Vercel with the custom domain **getshorty.xyz**.
 
----
+```bash
+cd story-summarizer
+vercel --prod
+```
 
-## Security Notes
+DNS setup (GoDaddy or any registrar):
 
-- Never expose API keys to the client.
-- Validate and sanitize all user input.
-- Apply rate limiting to API routes handling AI calls.
-
----
-
-## Roadmap
-
-- Multi-provider AI support.
-- Persistent conversation history.
-- Vector search + embeddings for recall.
-- Admin dashboard for AI usage metrics.
+| Type | Name | Value |
+|------|------|-------|
+| A | `@` | `76.76.21.21` |
+| CNAME | `www` | `cname.vercel-dns.com` |
 
 ---
 
 ## License
 
-MIT © 2025
+MIT

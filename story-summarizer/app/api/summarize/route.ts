@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateText } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { anthropic, createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
 import { summaryCache } from '@/lib/cache'
 
 const corsHeaders = {
@@ -17,17 +18,29 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: corsHeaders })
 }
 
+function getModel(provider: string, apiKey: string) {
+  if (provider === 'openai') {
+    const openai = createOpenAI({ apiKey })
+    return openai('gpt-4o-mini')
+  }
+  // Default to Anthropic
+  const client = createAnthropic({ apiKey })
+  return client('claude-haiku-4-5-20251001')
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
 
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return jsonResponse({ error: 'Anthropic API key is not configured.' }, 500)
-    }
-
     const body = await request.json()
     const url = body.url
-    const clientContent = body.content  // optional: extension sends page text directly
+    const clientContent = body.content
+    const userApiKey = body.apiKey
+    const provider = body.provider || 'anthropic'
+
+    if (!userApiKey) {
+      return jsonResponse({ error: 'API key is required. Add your key in settings.' }, 401)
+    }
 
     if (!url) {
       return jsonResponse({ error: 'URL is required' }, 400)
@@ -45,7 +58,6 @@ export async function POST(request: NextRequest) {
     let title: string
 
     if (clientContent && clientContent.length > 50) {
-      // Extension sent page text — skip fetch entirely
       content = clientContent.slice(0, 1500)
       title = body.title || 'Article Summary'
     } else {
@@ -58,8 +70,10 @@ export async function POST(request: NextRequest) {
       return jsonResponse({ error: 'Could not extract enough content from this article.' }, 400)
     }
 
+    const model = getModel(provider, userApiKey)
+
     const result = await generateText({
-      model: anthropic('claude-haiku-4-5-20251001'),
+      model,
       temperature: 0,
       maxTokens: 150,
       prompt: `Summarize in 4 sentences. Do NOT use markdown, headers, hashtags, or labels. Just plain sentences.\n\n${content.slice(0, 600)}`
@@ -93,7 +107,11 @@ export async function POST(request: NextRequest) {
     console.error(`Error: ${Date.now() - startTime}ms:`, raw)
 
     let msg = 'Something went wrong. Try again in a moment.'
-    if (raw.includes('HTTP 403') || raw.includes('HTTP 401')) {
+    if (raw.includes('401') || raw.includes('Invalid') || raw.includes('authentication')) {
+      msg = 'Invalid API key. Check your key in settings.'
+    } else if (raw.includes('429') || raw.includes('rate')) {
+      msg = 'Rate limited. Wait a moment and try again.'
+    } else if (raw.includes('HTTP 403')) {
       msg = 'This site blocked us. Paste the article text below instead.'
     } else if (raw.includes('HTTP 404')) {
       msg = 'Page not found. Double-check the URL.'
@@ -103,8 +121,6 @@ export async function POST(request: NextRequest) {
       msg = 'The site took too long to respond. Try again or paste the text.'
     } else if (raw.includes('fetch')) {
       msg = "Couldn't reach that site. Paste the article text below instead."
-    } else if (raw.includes('API key')) {
-      msg = 'API key missing. Check your .env.local file.'
     }
 
     return jsonResponse({ error: msg }, 500)

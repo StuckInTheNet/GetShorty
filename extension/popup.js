@@ -39,9 +39,9 @@ const FONTS = [
 ];
 
 const SIZES = [
-  { name: 'compact', base: 11, width: 340 },
-  { name: 'default', base: 13, width: 380 },
-  { name: 'large', base: 15, width: 420 }
+  { name: 'compact', base: 11, width: 360 },
+  { name: 'default', base: 13, width: 440 },
+  { name: 'large', base: 15, width: 560 }
 ];
 
 const THEMES = {
